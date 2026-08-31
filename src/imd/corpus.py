@@ -35,6 +35,15 @@ _EXCLUDE_RE = re.compile("|".join(config.TITLE_EXCLUSION_PATTERNS))
 # Wikidata properties carrying an event date, in order of preference.
 DATE_PROPERTIES = ("P585", "P580", "P571")  # point in time, start time, inception
 
+# Wikidata precision codes: 11 = day, 10 = month, 9 = year. A year-precision
+# claim parses to January 1st, which is not a date so much as a placeholder --
+# on a "months since event" axis it smears t0 by up to eleven months, and it is
+# systematically *early*, which inflates every half-life measured from it. A
+# contemporaneous article's first revision is the better estimate in that case,
+# so anything coarser than month precision is rejected here and falls through
+# to the revision-timestamp fallback.
+MIN_DATE_PRECISION = 10
+
 
 def _is_plausible_event_title(title: str) -> bool:
     return not _EXCLUDE_RE.search(title)
@@ -131,6 +140,9 @@ def resolve_event_dates(
         for title, page in info.items()
     }
     entities = client.wikidata_claims([q for q in qids.values() if q])
+    # Creation timestamps: the fallback t0 for articles Wikidata has no date
+    # for, and the input to the retrospective-article filter for every article.
+    created_times = client.first_revision_times(titles)
 
     records = []
     for title in titles:
@@ -144,14 +156,18 @@ def resolve_event_dates(
             claims = entities[qid].get("claims", {})
             for prop in DATE_PROPERTIES:
                 for claim in claims.get(prop, []):
-                    event_date, precision = _parse_wikidata_time(claim)
-                    if event_date is not None:
-                        source = f"wikidata:{prop}"
-                        break
+                    parsed, parsed_precision = _parse_wikidata_time(claim)
+                    if parsed is None:
+                        continue
+                    if parsed_precision is not None and parsed_precision < MIN_DATE_PRECISION:
+                        continue
+                    event_date, precision = parsed, parsed_precision
+                    source = f"wikidata:{prop}"
+                    break
                 if event_date is not None:
                     break
 
-        created = page.get("created")
+        created = created_times.get(title)
         created_ts = pd.to_datetime(created, utc=True, errors="coerce") if created else pd.NaT
 
         if event_date is None and pd.notna(created_ts):
@@ -167,6 +183,7 @@ def resolve_event_dates(
                 "date_precision": precision,
                 "created_at": created_ts,
                 "is_disambiguation": "disambiguation" in page.get("pageprops", {}),
+                "is_redirect": bool(page.get("redirect", False)),
                 "current_length": page.get("length"),
             }
         )
@@ -177,8 +194,12 @@ def resolve_event_dates(
 
 def filter_corpus(
     resolved: pd.DataFrame, settings: config.Settings | None = None
-) -> pd.DataFrame:
-    """Apply the inclusion criteria and record why each article was dropped."""
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Apply the inclusion criteria and record why each article was dropped.
+
+    Returns ``(kept, dropped)``. The dropped rows keep their ``drop_reason`` so
+    a run can be audited for a filter that fired far more often than expected.
+    """
     settings = settings or config.DEFAULT_SETTINGS
     df = resolved.copy()
     df["drop_reason"] = None
@@ -188,6 +209,10 @@ def filter_corpus(
         df.loc[target, "drop_reason"] = reason
 
     mark(df["is_disambiguation"].fillna(False), "disambiguation")
+    # Category listings include redirects, whose "edit history" is a handful of
+    # retargeting edits and says nothing about attention to the event.
+    if "is_redirect" in df:
+        mark(df["is_redirect"].fillna(False), "redirect")
     mark(df["event_date"].isna(), "no_event_date")
 
     # The article must exist for long enough after the event for a decay curve
@@ -206,24 +231,27 @@ def filter_corpus(
     mark(lag_years < -0.5, "date_after_creation")
 
     kept = df[df["drop_reason"].isna()].drop(columns=["drop_reason"]).reset_index(drop=True)
-    dropped = df[df["drop_reason"].notna()]
+    dropped = df[df["drop_reason"].notna()].reset_index(drop=True)
     log.info(
         "corpus filter: kept %d, dropped %d (%s)",
         len(kept),
         len(dropped),
         dropped["drop_reason"].value_counts().to_dict(),
     )
-    kept.attrs["dropped"] = dropped
-    return kept
+    # Only JSON-serialisable values may live in ``attrs``: pandas writes them
+    # into the parquet metadata, so parking the dropped frame here makes the
+    # corpus unwritable. The rows themselves go to their own artifact.
+    kept.attrs["dropped_counts"] = dropped["drop_reason"].value_counts().to_dict()
+    return kept, dropped
 
 
 def build_corpus(
     client: WikiClient, settings: config.Settings | None = None
-) -> pd.DataFrame:
-    """End-to-end corpus construction."""
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """End-to-end corpus construction. Returns ``(corpus, dropped)``."""
     settings = settings or config.DEFAULT_SETTINGS
     candidates = gather_candidates(client, settings)
     resolved = resolve_event_dates(client, candidates)
-    corpus = filter_corpus(resolved, settings)
+    corpus, dropped = filter_corpus(resolved, settings)
     corpus.attrs["settings"] = asdict(settings)
-    return corpus
+    return corpus, dropped

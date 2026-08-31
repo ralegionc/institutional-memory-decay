@@ -1,0 +1,127 @@
+{
+  "generated_at": "2026-08-12T20:48:16",
+  "n_articles_fitted": 286,
+  "settings": {
+    "year_start": 2004,
+    "year_end": 2022,
+    "per_category_year": 4,
+    "min_revisions": 40,
+    "min_months_observed": 36,
+    "requests_per_second": 8.0,
+    "max_retries": 5,
+    "timeout": 60,
+    "revision_page_limit": 500,
+    "max_revisions_per_article": 20000,
+    "snapshot_offsets_years": [
+      0.0,
+      0.25,
+      1.0,
+      2.0,
+      3.0,
+      5.0,
+      8.0,
+      12.0,
+      16.0
+    ],
+    "fit_max_months": 240,
+    "peak_window_months": 3,
+    "dormancy_threshold": 0.05,
+    "dormancy_window_months": 12,
+    "bootstrap_iterations": 2000,
+    "random_seed": 20260812
+  },
+  "omnibus": {
+    "empirical_half_life": {
+      "metric": "empirical_half_life",
+      "test": "kruskal_wallis",
+      "statistic": 115.13837905218426,
+      "p_value": 4.8894592223283653e-20,
+      "n_groups": 11,
+      "n_total": 286,
+      "epsilon_squared": 0.38232137837157915
+    },
+    "share_year1": {
+      "metric": "share_year1",
+      "test": "kruskal_wallis",
+      "statistic": 134.6844280237502,
+      "p_value": 5.161329469315449e-24,
+      "n_groups": 11,
+      "n_total": 286,
+      "epsilon_squared": 0.45339792008636437
+    },
+    "floor_share_of_peak": {
+      "metric": "floor_share_of_peak",
+      "test": "kruskal_wallis",
+      "statistic": 9.349679158398772,
+      "p_value": 0.4992702214567919,
+      "n_groups": 11,
+      "n_total": 286,
+      "epsilon_squared": -0.0023648030603681037
+    }
+  },
+  "n_significant_pairs": {
+    "empirical_half_life": 37,
+    "share_year1": 37,
+    "floor_share_of_peak": 0
+  },
+  "logrank": {
+    "statistic": 55.215822297860015,
+    "p_value": 2.8780297327641022e-08,
+    "df": 10
+  },
+  "best_model_share": {
+    "power_law_floor": 0.4370629370629371,
+    "power_law": 0.2867132867132867,
+    "stretched_exponential": 0.15034965034965034,
+    "exponential": 0.1258741258741259
+  },
+  "median_half_life_months": 3.2928571428571427,
+  "persistence_model": {
+    "n": 286,
+    "cv_r2": 0.5415978259928196,
+    "top_features": [
+      "editors_year1",
+      "peak_rate",
+      "bytes_at_t0",
+      "indeg_first",
+      "n_months"
+    ]
+  },
+  "estimator_recovery": {
+    "n_articles": 286,
+    "exponent": {
+      "n": 286,
+      "pearson": 0.7586381712428663,
+      "spearman": 0.7582443230710239,
+      "median_bias": -0.300031612393395,
+      "median_abs_error": 0.3099666652254387
+    },
+    "floor_share": {
+      "n": 286,
+      "pearson": 0.36263300520082187,
+      "spearman": 0.17598417378560477,
+      "median_bias": 0.00029688935129137907,
+      "median_abs_error": 0.022363172380726687
+    },
+    "half_life_empirical": {
+      "n": 286,
+      "pearson": 0.7443997390509611,
+      "spearman": 0.7569157526104371,
+      "median_bias": -0.6714870497330767,
+      "median_abs_error": 1.0535380674483263
+    },
+    "half_life_fitted": {
+      "n": 279,
+      "pearson": 0.3478652726655359,
+      "spearman": 0.7955426247742234,
+      "median_bias": -0.8400000000000001,
+      "median_abs_error": 1.52
+    },
+    "best_model_share": {
+      "power_law_floor": 0.4370629370629371,
+      "power_law": 0.2867132867132867,
+      "stretched_exponential": 0.15034965034965034,
+      "exponential": 0.1258741258741259
+    }
+  }
+}

@@ -251,15 +251,25 @@ def plot_halflife_by_class(stats_df: pd.DataFrame, outdir: Path,
     ax.scatter(d["median"], y, s=64, color=SERIES[0], zorder=3,
                edgecolor=SURFACE, linewidth=2)
     for yi, (median, n) in enumerate(zip(d["median"], d["n"])):
-        ax.text(median, yi + 0.30, f"{median:.0f} mo  (n={n})",
+        ax.text(median, yi + 0.30, f"{median:.1f} mo  (n={n})",
                 fontsize=8.6, color=INK_2, ha="center")
     ax.set_yticks(y, labels)
     ax.set_xlabel("Months from peak until attention halves")
     ax.grid(axis="y", visible=False)
     ax.margins(y=0.06)
+    # The headline is computed from the frame being plotted rather than
+    # asserted: on real data most classes sit within a single monthly bin of
+    # each other, and a fixed "far faster than others" caption would be making
+    # a claim the panel underneath it does not support.
+    lo, hi = d.iloc[0], d.iloc[-1]
+    ratio = float(hi["median"]) / float(lo["median"]) if float(lo["median"]) else float("nan")
+    headline = (
+        f"{hi['event_class'].replace('_', ' ').capitalize()} articles hold attention "
+        f"{ratio:.1f}x longer than {lo['event_class'].replace('_', ' ')} articles"
+    )
     _finish(
         fig, ax,
-        "Some kinds of events are forgotten far faster than others",
+        headline,
         "Median half-life with 95% bootstrap confidence interval.",
         "Bootstrap: 2,000 resamples of the article-level medians",
     )
@@ -414,9 +424,18 @@ def plot_edge_survival(edges: pd.DataFrame, outdir: Path) -> Path:
     ax.set_xlabel("Years since event")
     ax.set_ylabel("Share of baseline links")
     ax.set_ylim(bottom=0)
+    # Same principle as figure 3: state the measured quantity, not a causal
+    # reading of it. (The original caption had links decaying *faster* than
+    # editing, which is what the simulator produced and the opposite of what
+    # the real snapshots show.)
+    mid = edges[edges["offset_years"] <= 3.0].iloc[-1]
+    headline = (
+        f"{mid['survival_rate'] * 100:.0f}% of an event's original inbound links "
+        f"are still there {mid['offset_years']:g} years on"
+    )
     _finish(
         fig, ax,
-        "Events stop being referenced before they stop being edited",
+        headline,
         "Links between event articles, measured against the earliest snapshot of each article.",
         f"Baseline edges: {int(edges['n_baseline_edges'].iloc[0]):,}",
     )

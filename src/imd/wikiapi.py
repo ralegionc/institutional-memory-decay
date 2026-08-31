@@ -250,7 +250,13 @@ class WikiClient:
     # -- page metadata -----------------------------------------------------
 
     def page_info(self, titles: list[str]) -> list[dict]:
-        """Batch page metadata including the Wikidata item id."""
+        """Batch page metadata including the Wikidata item id.
+
+        Note there is deliberately no ``inprop=created``: MediaWiki has no such
+        property (it answers with an ``Unrecognized value`` warning and an HTTP
+        200, so asking for it fails silently rather than loudly). The creation
+        timestamp comes from :meth:`first_revision_times` instead.
+        """
         out: list[dict] = []
         for chunk in _chunks(titles, 50):
             payload = self._query(
@@ -258,11 +264,42 @@ class WikiClient:
                     "action": "query",
                     "titles": "|".join(chunk),
                     "prop": "info|pageprops",
-                    "inprop": "created",
                     "ppprop": "wikibase_item|disambiguation",
                 }
             )
             out.extend(payload.get("query", {}).get("pages", []))
+        return out
+
+    def first_revision_times(self, titles: list[str]) -> dict[str, str]:
+        """Creation timestamp per article, as an ISO string.
+
+        One request per title, unavoidably: ``rvdir``/``rvlimit`` are rejected
+        by the API ("may only be used on a single page") the moment more than
+        one title is supplied, so the oldest revision cannot be batched the way
+        page metadata can. Responses are cached, so the cost is paid once.
+        """
+        out: dict[str, str] = {}
+        for title in titles:
+            try:
+                payload = self._query(
+                    {
+                        "action": "query",
+                        "prop": "revisions",
+                        "titles": title,
+                        "rvprop": "timestamp",
+                        "rvlimit": "1",
+                        "rvdir": "newer",
+                    }
+                )
+            except Exception as exc:
+                log.debug("first revision failed for %s: %s", title, exc)
+                continue
+            pages = payload.get("query", {}).get("pages", [])
+            if not pages or pages[0].get("missing"):
+                continue
+            revs = pages[0].get("revisions", [])
+            if revs and revs[0].get("timestamp"):
+                out[pages[0].get("title", title)] = revs[0]["timestamp"]
         return out
 
     # -- revisions ---------------------------------------------------------

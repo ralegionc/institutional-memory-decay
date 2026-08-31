@@ -26,6 +26,7 @@ CACHE_DB = DATA_DIR / "http_cache.sqlite"
 # tests and the notebooks never disagree about where a stage writes its output.
 ARTIFACTS = {
     "corpus": "corpus.parquet",
+    "corpus_dropped": "corpus_dropped.parquet",
     "revisions": "revisions.parquet",
     "snapshots": "snapshots.parquet",
     "snapshot_links": "snapshot_links.parquet",
@@ -198,6 +199,13 @@ TITLE_EXCLUSION_PATTERNS: tuple[str, ...] = (
     r"^Portal:",
     r"^Wikipedia:",
     r"^\d{4}$",  # bare year articles
+    # Chronicle pages ("2015 in music", "2013-14 in Scottish football"). These
+    # sit inside the year-scoped categories but are not events: they are edited
+    # continuously *through* their year and abandoned afterwards, so their
+    # attention curve is an artefact of the calendar rather than of forgetting.
+    r"^\d{4}([-–]\d{2,4})? (in|by) ",
+    r"^Deaths in ",
+    r"^\d{4}[-–]\d{2,4}$",
 )
 
 

@@ -19,6 +19,41 @@ It combines three things that decay on different schedules:
 
 ---
 
+## What it found
+
+`outputs/` holds the results of a **live run against English Wikipedia**: 690
+event articles spanning 2001–2023, 239,197 revisions, 5,165 wikitext snapshots,
+6,900 API requests, zero errors. The written analysis is in
+[`report/`](report/institutional-memory-decay.md).
+
+- **Forgetting is not exponential.** Across 688 fitted articles the pure
+  exponential takes under 8% of the Akaike weight, against 46% for a power law
+  decaying onto a maintenance floor. Collective forgetting has no characteristic
+  timescale — though stretched exponential takes a third of the weight, so
+  "heavy-tailed" is better supported than "power law" specifically.
+- **Event type matters less than expected, and mostly through elections.**
+  Election articles hold attention 2.0× longer than terrorism or transport
+  accidents (median half-life 2.6 vs 1.3 months), but eight of eleven classes
+  sit within 0.15 months of each other. Kruskal–Wallis H = 85.7,
+  p = 3.8 × 10⁻¹⁴, but ε² = 0.115.
+- **Evidence rots faster than it is repaired.** Mean dead-link density climbs
+  monotonically from ~0 to 11 per 100 URLs over sixteen years while archive
+  coverage rises only from 2.5% to 21%. The median stays at zero for eight
+  years and then climbs steeply — rot is a threshold articles cross one at a
+  time, not a drizzle across the corpus.
+- **Structure outlives attention.** The median article has zero human edits by
+  month 12, yet 75% of its inbound links from other event articles are still
+  present three years out, and total inbound links are still growing.
+
+Two limitations are load-bearing enough to state up front: the monthly panel is
+**too coarse to resolve the early curve** (78% of articles peak in month 0, and
+two-thirds have half-lives under 1.5 months, which is the estimator's floor),
+and the internal-link layer rests on only **80 baseline edges**, because links
+between articles that are both in a sample of Wikipedia are rare by
+construction. Both are discussed in the report.
+
+---
+
 ## Headline design decisions
 
 Most of the interesting work in this project is in getting the measurement
@@ -73,7 +108,10 @@ argmax put the "attention peak" of some articles 33 months after the event, so
 entire original decay. The peak search is now confined to the first year, where
 an event's peak is by construction.
 
-Recovery on 286 simulated articles after both fixes:
+Recovery on 286 simulated articles after both fixes (this is the one place
+synthetic data is used on purpose — a parameter can only be checked for
+recovery against a value that is known. The full validation run is preserved in
+`outputs/validation_synthetic/`):
 
 | Parameter | Pearson r | Spearman ρ | Median bias |
 |---|---|---|---|
@@ -106,11 +144,15 @@ imd all --simulated -n 300
 ```bash
 export IMD_CONTACT="you@example.com"   # Wikimedia API etiquette wants a contact
 
-imd corpus      # walk the category taxonomy, resolve event dates   (~10 min)
-imd collect     # revisions, wikitext snapshots, pageviews          (hours)
-imd analyze     # fit decay models, run the statistics
+imd corpus      # walk the category taxonomy, resolve event dates   (~8 min)
+imd collect     # revisions, wikitext snapshots, pageviews          (~35 min)
+imd analyze     # fit decay models, run the statistics              (~6 min)
 imd figures     # render every figure
 ```
+
+Wall-clock times are from the run in `outputs/`, at the default settings
+(2004–2022, four articles per category-year). They scale with corpus size; the
+dominating cost is one wikitext fetch per article per snapshot offset.
 
 `collect` is the long stage. It is **resumable and cached**: every API response
 is stored in a compressed SQLite blob keyed by the request, so an interrupted
@@ -134,7 +176,11 @@ curve here is measured on an axis of "months since event", so a wrong *t*₀ doe
 not add noise — it smears the peak and biases the fitted half-life upward.
 Resolution order:
 
-1. **Wikidata P585** (point in time) / P580 (start time) on the article's item.
+1. **Wikidata P585** (point in time) / P580 (start time) on the article's item,
+   **at month precision or finer**. A year-precision claim parses to January
+   1st, which is a placeholder rather than a date — it displaces *t*₀ by up to
+   eleven months and always in the same direction, which inflates every
+   half-life measured from it. Those are refused in favour of source 2.
 2. **First revision timestamp**, as a fallback.
 
 Source 2 is fine for contemporary events (an article about a plane crash is
@@ -142,7 +188,18 @@ typically created within hours) but wrong for historical ones (the article on a
 1912 shipwreck was created in 2001). The source is recorded per article, so the
 analysis can be restricted to Wikidata-dated events as a robustness check, and
 articles created more than three years after their event are dropped as
-retrospective rather than contemporaneous records.
+retrospective rather than contemporaneous records. On the live corpus the
+fallback carries the majority: 395 of 690 articles are dated from their first
+revision.
+
+Redirects, disambiguation pages and chronicle pages (`2015 in music`, `Deaths
+in 2015`) are excluded — the last of these sit inside the year-scoped
+categories without being events, and their attention curve tracks the calendar
+rather than any act of forgetting. Articles that never reached 40 human
+revisions are dropped once their history is in hand, since a decay curve needs
+something to decay from. Every exclusion is written to
+`data/corpus_dropped.parquet` with its reason, so a filter that fires far more
+often than expected is visible rather than silent.
 
 ## Why regexes on wikitext, not rendered HTML
 
@@ -174,7 +231,7 @@ src/imd/
   simulate.py    generative model with ground truth + recovery validation
   viz.py         figures
   cli.py         `imd` command
-tests/           60 tests, no network required
+tests/           67 tests, no network required
 report/          the written analysis
 ```
 
@@ -184,12 +241,20 @@ report/          the written analysis
 pytest
 ```
 
-60 tests, none of which touch the network. The API client is exercised against
+67 tests, none of which touch the network. The API client is exercised against
 a fake session (caching, retry, 404 handling, rate limiting); the estimators
 are exercised against series with known parameters. Three tests are explicit
 **quality gates** — if estimator recovery drops below the thresholds quoted
 above, they fail, because at that point the numbers in the report are not
 trustworthy.
+
+A further group covers the **live-API contract**: which parameters MediaWiki
+actually accepts, that the oldest revision is fetched one page at a time
+(`rvdir`/`rvlimit` are rejected for multi-title queries), that a year-precision
+Wikidata date is refused in favour of the revision timestamp, and that a corpus
+frame survives a parquet round-trip. These exist because a synthetic dataset
+cannot exercise any of it — every one of them was written against a bug the
+simulated path ran straight past.
 
 ## Method notes and limitations
 

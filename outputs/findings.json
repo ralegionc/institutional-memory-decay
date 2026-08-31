@@ -1,0 +1,90 @@
+{
+  "generated_at": "2026-08-22T02:26:15",
+  "n_articles_fitted": 688,
+  "settings": {
+    "year_start": 2004,
+    "year_end": 2022,
+    "per_category_year": 4,
+    "min_revisions": 40,
+    "min_months_observed": 36,
+    "requests_per_second": 8.0,
+    "max_retries": 5,
+    "timeout": 60,
+    "revision_page_limit": 500,
+    "max_revisions_per_article": 20000,
+    "snapshot_offsets_years": [
+      0.0,
+      0.25,
+      1.0,
+      2.0,
+      3.0,
+      5.0,
+      8.0,
+      12.0,
+      16.0
+    ],
+    "fit_max_months": 240,
+    "peak_window_months": 3,
+    "dormancy_threshold": 0.05,
+    "dormancy_window_months": 12,
+    "bootstrap_iterations": 2000,
+    "random_seed": 20260812
+  },
+  "omnibus": {
+    "empirical_half_life": {
+      "metric": "empirical_half_life",
+      "test": "kruskal_wallis",
+      "statistic": 85.6851913126603,
+      "p_value": 3.8235483224005576e-14,
+      "n_groups": 11,
+      "n_total": 670,
+      "epsilon_squared": 0.11484854523924172
+    },
+    "share_year1": {
+      "metric": "share_year1",
+      "test": "kruskal_wallis",
+      "statistic": 48.12850269421889,
+      "p_value": 5.880207444737566e-07,
+      "n_groups": 11,
+      "n_total": 688,
+      "epsilon_squared": 0.05631979718496143
+    },
+    "floor_share_of_peak": {
+      "metric": "floor_share_of_peak",
+      "test": "kruskal_wallis",
+      "statistic": 33.083893201230765,
+      "p_value": 0.0002636826472258534,
+      "n_groups": 11,
+      "n_total": 688,
+      "epsilon_squared": 0.03409733116873082
+    }
+  },
+  "n_significant_pairs": {
+    "empirical_half_life": 21,
+    "share_year1": 8,
+    "floor_share_of_peak": 12
+  },
+  "logrank": {
+    "statistic": 48.34670166656389,
+    "p_value": 5.364360954118322e-07,
+    "df": 10
+  },
+  "best_model_share": {
+    "power_law_floor": 0.4563953488372093,
+    "stretched_exponential": 0.32848837209302323,
+    "power_law": 0.1308139534883721,
+    "exponential": 0.08430232558139535
+  },
+  "median_half_life_months": 1.3422727272727273,
+  "persistence_model": {
+    "n": 670,
+    "cv_r2": 0.29156228268066786,
+    "top_features": [
+      "editors_year1",
+      "peak_rate",
+      "class_election",
+      "bytes_at_t0",
+      "anon_share_year1"
+    ]
+  }
+}

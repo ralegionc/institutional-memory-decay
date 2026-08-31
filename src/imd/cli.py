@@ -75,10 +75,13 @@ def cmd_corpus(args) -> None:
         per_category_year=args.per_category,
     )
     client = WikiClient(settings)
-    df = corpus_mod.build_corpus(client, settings)
+    df, dropped = corpus_mod.build_corpus(client, settings)
     if df.empty:
         raise SystemExit("corpus is empty -- check network access and category names")
     _write(df, "corpus")
+    if len(dropped):
+        _write(dropped, "corpus_dropped")
+        log.info("dropped: %s", df.attrs.get("dropped_counts"))
     print(df["event_class"].value_counts().to_string())
 
 
@@ -89,6 +92,22 @@ def cmd_collect(args) -> None:
 
     revisions = collect.collect_revisions(client, corpus, _maybe_read("revisions"))
     _write(revisions, "revisions")
+
+    # Stub articles can only be recognised once their history is in hand, so
+    # the activity threshold is applied here rather than at corpus time. The
+    # excluded rows are written out so the exclusion stays auditable.
+    corpus, inactive = collect.filter_low_activity(corpus, revisions, settings)
+    if corpus.empty:
+        raise SystemExit(
+            f"every article fell below min_revisions={settings.min_revisions}"
+        )
+    if len(inactive):
+        prior = _maybe_read("corpus_dropped")
+        if prior is not None and len(prior):
+            inactive = pd.concat([prior, inactive], ignore_index=True)
+            inactive = inactive.drop_duplicates(subset="title", keep="last")
+        _write(inactive, "corpus_dropped")
+    _write(corpus, "corpus")
 
     picks = collect.pick_snapshot_revisions(revisions, corpus, settings)
     snapshots, links = collect.collect_snapshots(client, picks, _maybe_read("snapshots"))

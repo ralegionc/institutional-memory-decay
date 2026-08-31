@@ -373,3 +373,161 @@ def test_simulated_class_differences_are_real():
     fast = truth[truth["event_class"] == "culture_award"]["true_exponent"].median()
     slow = truth[truth["event_class"] == "armed_conflict"]["true_exponent"].median()
     assert fast > slow
+
+
+# --------------------------------------------------------------------------
+# Live-API contract
+# --------------------------------------------------------------------------
+# The stages below were the ones that only ever ran against the simulator, so
+# they encode the parts of the real API's behaviour that a synthetic dataset
+# cannot exercise: which parameters MediaWiki actually accepts, and what the
+# corpus filters do with the messy dates Wikidata really returns.
+
+
+class _RoutedSession:
+    """Fake session that answers by inspecting the request parameters."""
+
+    def __init__(self, handler):
+        self.handler = handler
+        self.headers = {}
+        self.requests = []
+
+    def get(self, url, params=None, timeout=None):
+        self.requests.append((url, dict(params or {})))
+        return _FakeResponse(self.handler(url, params or {}))
+
+
+def test_page_info_does_not_ask_for_a_nonexistent_property(tmp_path):
+    """``inprop=created`` is not a MediaWiki parameter.
+
+    Asking for it is answered with HTTP 200 and a warning, so the mistake is
+    invisible at runtime: the creation timestamp is simply never returned and
+    every downstream date fallback silently stops working.
+    """
+    session = _RoutedSession(lambda url, params: {"query": {"pages": []}})
+    client = wikiapi.WikiClient(session=session, cache_path=tmp_path / "c.sqlite")
+    client.page_info(["Some Event"])
+    _, params = session.requests[0]
+    assert "inprop" not in params
+
+
+def test_first_revision_times_reads_the_oldest_revision(tmp_path):
+    def handler(url, params):
+        assert params["rvdir"] == "newer", "must ask for the oldest revision, not the newest"
+        assert "|" not in params["titles"], "rvlimit/rvdir are rejected for multiple titles"
+        return {
+            "query": {
+                "pages": [
+                    {"title": params["titles"],
+                     "revisions": [{"timestamp": "2014-03-08T00:37:46Z"}]}
+                ]
+            }
+        }
+
+    session = _RoutedSession(handler)
+    client = wikiapi.WikiClient(session=session, cache_path=tmp_path / "c.sqlite")
+    out = client.first_revision_times(["Event A", "Event B"])
+    assert out == {
+        "Event A": "2014-03-08T00:37:46Z",
+        "Event B": "2014-03-08T00:37:46Z",
+    }
+
+
+def test_first_revision_times_skips_missing_pages(tmp_path):
+    session = _RoutedSession(
+        lambda url, params: {"query": {"pages": [{"title": params["titles"], "missing": True}]}}
+    )
+    client = wikiapi.WikiClient(session=session, cache_path=tmp_path / "c.sqlite")
+    assert client.first_revision_times(["Gone"]) == {}
+
+
+def test_corpus_is_writable_as_parquet(tmp_path):
+    """``DataFrame.attrs`` is serialised into the parquet metadata as JSON.
+
+    Parking the dropped-rows frame there made every real corpus unwritable,
+    which the simulated path never hit because it never calls the filter.
+    """
+    from imd import corpus as corpus_mod
+
+    now = pd.Timestamp.now(tz="UTC")
+    resolved = pd.DataFrame(
+        [
+            {"title": "Kept", "event_date": now - pd.Timedelta(days=2000),
+             "created_at": now - pd.Timedelta(days=1999), "is_disambiguation": False,
+             "is_redirect": False},
+            {"title": "Dropped", "event_date": pd.NaT, "created_at": now,
+             "is_disambiguation": False, "is_redirect": False},
+        ]
+    )
+    kept, dropped = corpus_mod.filter_corpus(resolved)
+    assert list(kept["title"]) == ["Kept"]
+    assert list(dropped["drop_reason"]) == ["no_event_date"]
+    kept.to_parquet(tmp_path / "corpus.parquet", index=False)  # must not raise
+
+
+def test_year_precision_wikidata_dates_are_rejected(tmp_path):
+    """A year-precision claim parses to January 1st, which is a placeholder.
+
+    Accepting it puts t0 up to eleven months early and inflates every half-life
+    measured from that article.
+    """
+    from imd import corpus as corpus_mod
+
+    def handler(url, params):
+        if params.get("action") == "wbgetentities":
+            return {
+                "entities": {
+                    "Q1": {
+                        "claims": {
+                            "P585": [
+                                {"mainsnak": {"datavalue": {"value": {
+                                    "time": "+2015-01-01T00:00:00Z", "precision": 9}}}}
+                            ]
+                        }
+                    }
+                }
+            }
+        if params.get("prop") == "revisions":
+            return {"query": {"pages": [
+                {"title": params["titles"],
+                 "revisions": [{"timestamp": "2015-06-04T11:18:44Z"}]}
+            ]}}
+        return {"query": {"pages": [
+            {"title": "Flood", "pageprops": {"wikibase_item": "Q1"}}
+        ]}}
+
+    session = _RoutedSession(handler)
+    client = wikiapi.WikiClient(session=session, cache_path=tmp_path / "c.sqlite")
+    resolved = corpus_mod.resolve_event_dates(
+        client, pd.DataFrame([{"title": "Flood"}])
+    )
+    row = resolved.iloc[0]
+    assert row["date_source"] == "first_revision"
+    assert row["event_date"] == pd.Timestamp("2015-06-04T11:18:44Z")
+
+
+def test_chronicle_pages_are_not_events():
+    from imd import corpus as corpus_mod
+
+    assert not corpus_mod._is_plausible_event_title("2015 in music")
+    assert not corpus_mod._is_plausible_event_title("2013\u201314 in Scottish football")
+    assert not corpus_mod._is_plausible_event_title("Deaths in 2015")
+    assert corpus_mod._is_plausible_event_title("2015 Accra floods")
+    assert corpus_mod._is_plausible_event_title("2014 FIFA World Cup")
+
+
+def test_low_activity_articles_are_dropped_and_recorded():
+    """``min_revisions`` was defined, documented, and never applied."""
+    corpus = pd.DataFrame([{"title": "Big"}, {"title": "Stub"}, {"title": "Botfarm"}])
+    revisions = pd.DataFrame(
+        [{"title": "Big", "revid": i, "is_bot": False} for i in range(60)]
+        + [{"title": "Stub", "revid": 1000 + i, "is_bot": False} for i in range(5)]
+        # A stub kept alive by bots has no human attention to lose.
+        + [{"title": "Botfarm", "revid": 2000 + i, "is_bot": True} for i in range(200)]
+    )
+    settings = config.Settings(min_revisions=40)
+    kept, dropped = collect.filter_low_activity(corpus, revisions, settings)
+    assert list(kept["title"]) == ["Big"]
+    assert set(dropped["title"]) == {"Stub", "Botfarm"}
+    assert set(dropped["drop_reason"]) == {"too_few_revisions"}
+    assert int(kept.loc[0, "n_revisions"]) == 60

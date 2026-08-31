@@ -97,6 +97,43 @@ def collect_revisions(
     return out.reset_index(drop=True)
 
 
+def filter_low_activity(
+    corpus: pd.DataFrame, revisions: pd.DataFrame, settings: config.Settings | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Drop articles that never accumulated enough human editing to fit.
+
+    A decay curve needs something to decay from. Category listings are full of
+    two-sentence stubs that took thirty edits in a decade; fitting a hazard
+    model to those measures Poisson noise, not forgetting. The threshold is
+    counted on *human* revisions, since a stub kept alive by bot maintenance
+    has no attention to lose.
+
+    Returns ``(kept, dropped)``; ``dropped`` carries the counts so the
+    exclusion is auditable rather than invisible.
+    """
+    settings = settings or config.DEFAULT_SETTINGS
+    if corpus.empty:
+        return corpus, corpus.iloc[:0]
+
+    if revisions.empty:
+        counts = pd.Series(0, index=corpus["title"], dtype=int)
+    else:
+        counts = (
+            revisions[~revisions["is_bot"]].groupby("title")["revid"].count()
+        )
+
+    out = corpus.copy()
+    out["n_revisions"] = out["title"].map(counts).fillna(0).astype(int)
+    eligible = out["n_revisions"] >= settings.min_revisions
+    kept = out[eligible].reset_index(drop=True)
+    dropped = out[~eligible].assign(drop_reason="too_few_revisions").reset_index(drop=True)
+    log.info(
+        "activity filter: kept %d, dropped %d below %d human revisions",
+        len(kept), len(dropped), settings.min_revisions,
+    )
+    return kept, dropped
+
+
 # --------------------------------------------------------------------------
 # Snapshots
 # --------------------------------------------------------------------------

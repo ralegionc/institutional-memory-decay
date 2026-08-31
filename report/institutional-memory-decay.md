@@ -4,39 +4,35 @@
 
 ---
 
-> **Status of the numbers in this report.** Wikipedia's API was not reachable
-> from the environment this pipeline was developed in, so every quantitative
-> result below comes from the **simulator** (`imd.simulate`), which generates
-> edit histories from known decay parameters. That makes this document a
-> validated **methods report**: it establishes that the estimators recover
-> parameters they were given, and it fixes in advance exactly which numbers the
-> real run will produce and how they should be read. Running `imd corpus &&
-> imd collect && imd analyze && imd figures` regenerates every figure and table
-> here from live data, unchanged. Sections marked **[SYNTHETIC]** report the
-> validation run; sections marked **[METHOD]** hold regardless of data source.
-> No claim about the real world is made from simulated data.
+> **Status of the numbers in this report.** Every quantitative result below is
+> measured from **live English Wikipedia data**: 690 event articles, 239,197
+> revisions, 5,165 wikitext snapshots and 73,726 monthly pageview observations,
+> collected over 6,900 API requests in August 2026. Sections marked
+> **[MEASURED]** report that run. Section 4 is marked **[VALIDATION]** and is
+> the one place synthetic data appears on purpose: estimator recovery can only
+> be checked against parameters that are known, which means simulating them.
+> That validation run is preserved separately in
+> `outputs/validation_synthetic/`. Sections marked **[METHOD]** hold regardless
+> of data source.
 
 ---
 
 ## 1. The question
 
-Collective memory is usually studied through what people say they remember.
-Wikipedia offers something better: a continuous, timestamped record of how much
-effort a community is willing to spend maintaining an account of an event,
-decades after it happened. Every revision is a small act of remembering. Their
-rate over time is a forgetting curve you can actually fit.
+Every event that matters enough to get a Wikipedia article gets a burst of
+attention: hundreds of editors, thousands of revisions, a wall of citations to
+breaking news. Then the attention drains away. This report measures the shape
+of that draining and asks which kinds of events resist it.
 
-Three questions follow:
-
-1. **What shape does collective forgetting have?** Psychology's individual
-   forgetting curve is roughly exponential. Is the collective one?
-2. **Which kinds of events resist decay, and which fade fastest?**
-3. **Does the *evidence* decay at the same rate as the attention?** An article
-   nobody edits is still standing on citations that are quietly going dead.
+Wikipedia offers something better than a survey of what people remember: a
+continuous, timestamped record of how much work a society's volunteer
+encyclopedia is willing to do on an event, month after month, for up to twenty
+years. That record is not memory, but it is a durable trace of collective
+attention, and it can be measured rather than recalled.
 
 ## 2. What is being measured [METHOD]
 
-Four layers, which turn out to decay on visibly different schedules:
+Four layers that decay on different schedules:
 
 | Layer | Observable | Interpretation |
 |---|---|---|
@@ -45,36 +41,48 @@ Four layers, which turn out to decay on visibly different schedules:
 | Structure | inbound links from other event articles | is the event still used to explain other things |
 | Evidence | dead-link tags, archive coverage | do the sources still exist |
 
-The structural layer deserves emphasis, because it is the one that makes this
-more than a time-series exercise. When article X links to event Y, an editor
-decided Y was worth invoking to explain something else. Y's in-degree *within
-the event corpus* is therefore a measure of its usefulness as a reference
-point. Losing in-degree is a sharper form of forgetting than losing edits: it
-means the event stopped being a thing other events are explained in terms of.
-
-Restricting the graph to corpus members is what makes this interpretable. An
-event's in-degree from all of Wikipedia is dominated by year and country index
-pages; in-degree from other *events* is not.
+Bot edits are excluded throughout. They run at a roughly constant rate and
+would flatten every curve toward artificial persistence. On the real corpus
+they are 5.4% of revisions, and the name-plus-tag heuristic that identifies
+them was audited against the actual top-flagged accounts (`Citation bot`,
+`AnomieBOT`, `InternetArchiveBot`, `GreenC bot`, ...) with no false positives
+among them.
 
 ### 2.1 Anchoring time
 
-Everything is measured on an axis of **months since the event**, so the event
-date is load-bearing. A wrong *t*₀ does not add noise — it smears the peak and
-biases every half-life upward. Dates come from Wikidata's point-in-time
-property where available and the first revision timestamp otherwise, with the
-source recorded per article so that the analysis can be restricted to
-Wikidata-dated events as a robustness check. Articles created more than three
-years after their event are dropped: they are retrospective accounts, and their
-edit history says nothing about how the event was forgotten.
+Every curve here is measured on an axis of *months since the event*, so a wrong
+*t*₀ does not add noise — it smears the peak and biases the fitted half-life
+upward. Resolution order:
+
+1. **Wikidata P585/P580/P571**, but only at **month precision or finer**. A
+   year-precision claim parses to January 1st, which is a placeholder rather
+   than a date; on this corpus, accepting those would have put *t*₀ up to
+   eleven months early for roughly a third of the Wikidata-dated articles, and
+   always in the same direction.
+2. **First revision timestamp** otherwise. For a contemporaneous article this
+   is accurate to hours.
+
+On the real corpus the fallback carries the majority of the weight: 395 of 690
+articles are dated from their first revision, 295 from Wikidata. Articles
+created more than three years after their event are dropped as retrospective
+rather than contemporaneous records, along with redirects, disambiguation
+pages, and chronicle pages (`2015 in music`, `Deaths in 2015`) that sit inside
+the year-scoped categories without being events.
+
+Articles that never accumulated 40 human revisions are also dropped: 212 of the
+902 dated candidates, with a median of 23 revisions each. A decay curve needs
+something to decay from, and fitting a hazard model to a two-paragraph stub
+measures Poisson noise.
 
 ### 2.2 Fitting
 
-Monthly edit counts span four orders of magnitude within a single article's
-history. Least squares on raw counts is dominated entirely by the peak month;
-least squares on log counts is undefined for the many months with zero edits.
-Both problems disappear under **Poisson maximum likelihood**, which also makes
-AICc comparison across functional forms legitimate. Four forms are fitted to
-every article:
+The observable is a monthly count spanning four orders of magnitude within a
+single article's history. Least squares on raw counts is dominated by the peak
+month; least squares on log counts is undefined for the many months with zero
+edits. Both are avoided by fitting **Poisson maximum likelihood**, which also
+makes AICc comparison across functional forms legitimate.
+
+Four candidate laws, fitted per article:
 
 | Form | Expression | Interpretation |
 |---|---|---|
@@ -83,41 +91,33 @@ every article:
 | Stretched exponential | *A*·e^(−(*t*/τ)^β) | standard form in human-dynamics work |
 | **Power law with floor** | *A*·(*t*+1)^−*b* + *c* | decay onto permanent maintenance |
 
-The fourth is the one with a story attached. Its floor *c* is the rate an
-article settles into once the news cycle is over — the difference between an
-event that is *quiet* and one that is *finished*.
-
-Fits are reported as Akaike weights rather than a bare argmin, so it stays
-visible how often the winner wins by a nose.
-
 ## 3. Two measurement failures worth reporting [METHOD]
 
-Both were found by validating estimators against the simulator rather than by
-reading code, and both changed the results materially. They are described here
-because the corrections are part of the method, not incidental bug fixes.
+Both were found by validating estimators against simulated histories rather
+than by reading the code, and both materially changed the results.
 
 **Resurgences corrupt the decay estimate.** Anniversary coverage, a verdict, a
-later event that recontextualises this one — each adds a burst of editing *on
-top of* the ongoing decay rather than changing its rate. Fitted naively, one
-large bump drags the exponent toward zero, and a fast-fading event is scored as
-persistent. The fix encodes the two-process claim directly: fit, compute
-Pearson residuals, mask months exceeding +3 **on the high side only**, refit,
-then score the refitted parameters on the full series so AICc stays comparable.
-Downward deviations are never trimmed — a genuinely quiet month is the signal
-we are trying to measure. Exponent recovery improved from ρ = 0.27 to ρ = 0.76.
+later related event — each adds a burst on top of the ongoing decay. Left in, a
+single large bump drags the fitted exponent toward zero and makes a fast-fading
+event look persistent. Fitting now runs twice, masking months whose Pearson
+residual exceeds +3 **on the high side only**: a quiet month is signal, never
+an outlier. Exponent recovery went from ρ = 0.27 to 0.76.
 
-**Unconstrained peak-finding chases those same resurgences.** A tenth-
-anniversary spike can exceed the original event's peak month. The argmax then
-places the "attention peak" years late, and "months since peak" discards the
-entire original decay. Peak search is now confined to the first 12 months,
-where an event's own peak lies by construction.
+**Unconstrained peak-finding chases those same resurgences.** An unrestricted
+argmax put the attention peak of some articles 33 months after the event, so
+"months since peak" began counting from the resurgence and discarded the entire
+original decay. The peak search is now confined to the first year, where an
+event's peak is by construction.
 
-## 4. Estimator validation [SYNTHETIC]
+## 4. Estimator validation [VALIDATION]
 
 286 simulated articles across 11 event classes, each generated from drawn
-values of amplitude, decay exponent, floor height and resurgence count.
+values of amplitude, decay exponent, floor height and resurgence count, then
+put through the same estimators. This is the only synthetic result in the
+report, and it is here because a fitted parameter is worth reporting only if
+the fitting code can recover a parameter it was given.
 
-![Estimator validation](../outputs/figures/07_estimator_recovery.png)
+![Estimator validation](../outputs/validation_synthetic/figures/07_estimator_recovery.png)
 
 | Parameter | Pearson *r* | Spearman ρ | Median bias |
 |---|---|---|---|
@@ -126,30 +126,24 @@ values of amplitude, decay exponent, floor height and resurgence count.
 | Half-life (fitted) | 0.35 | 0.80 | −0.84 mo |
 | Maintenance floor share | 0.36 | **0.18** | +0.00 |
 
-**Three things to take from this table.**
-
 The *rank* recovery of exponent and half-life (ρ ≈ 0.76–0.80) is good, which is
-what the project needs: every substantive claim here is comparative — this
-class decays faster than that one — and comparative claims live on ranks.
+what the project needs: every substantive claim here is comparative, and
+comparative claims live on ranks. The exponent carries a systematic **−0.30
+bias**, close to constant across articles, so absolute exponents should be read
+with it attached.
 
-The exponent carries a systematic **−0.30 bias**. It arises because the fit
-re-zeroes time at the peak while the generating process is anchored at the
-event, and it is close to constant across articles. It therefore does not
-affect rankings, but absolute exponents should be read with it attached.
+**The floor does not recover per article** (ρ = 0.18), because the floor is a
+few percent of peak and monthly counts that small are Poisson noise. On the
+real corpus the median fitted floor is 0.4% of peak, which is exactly the
+regime the validation says is unreliable. `floor_share_of_peak` is therefore
+**excluded** from the composite resistance index, and the floor is used only as
+an aggregate model-selection result.
 
-**The floor does not recover per article** (ρ = 0.18). The floor is a few
-percent of peak, and monthly counts that small are Poisson noise. This is a
-negative result with a consequence: `floor_share_of_peak` is deliberately
-**excluded** from the composite resistance index. Including an unreliable
-component would have added noise to the index while giving the appearance of
-extra evidence. The floor remains meaningful in aggregate — as a
-model-selection result — and is reported only that way.
+Three tests fail if recovery drops below these levels, on the principle that if
+the estimators stop working the report's numbers stop being trustworthy and
+someone should be told loudly.
 
-The pipeline ships three tests that fail if recovery drops below these levels,
-on the principle that if the estimators stop working the report's numbers stop
-being trustworthy and someone should be told loudly.
-
-## 5. The shape of forgetting [SYNTHETIC]
+## 5. The shape of forgetting [MEASURED]
 
 ![Forgetting curve](../outputs/figures/01_mean_forgetting_curve.png)
 
@@ -159,70 +153,92 @@ line, which makes the shape of the data the finding rather than the decoration.
 
 ![Model weights](../outputs/figures/02_model_weights.png)
 
-Averaged Akaike weights across the corpus:
+Averaged Akaike weights across 688 fitted articles:
 
 | Form | Mean Akaike weight | Best-fit share |
 |---|---|---|
-| Power law with floor | 46% | 44% |
-| Power law | 24% | 29% |
-| Stretched exponential | 18% | 15% |
-| Exponential | 12% | 13% |
+| Power law with floor | 46.3% | 45.6% |
+| Stretched exponential | 33.7% | 32.8% |
+| Power law | 12.2% | 13.1% |
+| Exponential | 7.8% | 8.4% |
 
-The power-law family takes ~70% of the weight and the pure exponential is the
-weakest of the four. **This is a validation result, not a discovery** — the
-simulator generates power-law-with-floor data, and the correct conclusion is
-that the selector identifies the family it was given rather than defaulting to
-whichever form has fewest parameters. On real data, the same table is the
-finding: if collective forgetting were exponential, like the individual
-Ebbinghaus curve, the bottom row would win.
+**The pure exponential is decisively the worst of the four**, taking under 8%
+of the weight. Collective forgetting on Wikipedia is not the constant-hazard
+process the individual Ebbinghaus curve describes: there is no characteristic
+forgetting timescale at which the same relative decay reliably happens.
 
-## 6. Which events resist decay [SYNTHETIC]
+The honest qualifier is that the runner-up is closer than the synthetic
+validation suggested. Stretched exponential takes a third of the weight — far
+more than the 15% it took on simulated power-law data — so the real corpus is
+better described as *heavy-tailed* than as specifically power-law. Separating
+the two would need finer-grained early data than a monthly panel provides.
+
+**A resolution limit worth stating plainly.** The median empirical half-life is
+**1.34 months**, and 78% of articles peak in the calendar month of the event
+itself. Two-thirds of the corpus has a half-life below 1.5 months, which is the
+narrow band the estimator produces when an article is already under half its
+peak rate by the very next monthly bin. Real event articles decay faster than a
+monthly panel can resolve. The number is a genuine measurement, but it is
+pressed against the floor of the instrument, and the between-class comparisons
+in the next section are consequently driven by the minority of articles that
+decay slowly enough to be resolved. A weekly panel over the first year would
+fix this and is the single highest-value change to make next.
+
+## 6. Which events resist decay [MEASURED]
 
 ![Half-life by class](../outputs/figures/03_halflife_by_class.png)
 
-Kruskal–Wallis across the 11 classes on empirical half-life: **H = 115.1,
-p < 10⁻¹⁹, ε² = 0.38**, with 37 of 55 pairwise comparisons significant after
-Benjamini–Hochberg correction. Effect sizes are reported as Cliff's δ alongside
-every p-value, because with a few hundred articles almost any difference
-reaches significance and the question of interest is whether it is *large*.
+Kruskal–Wallis across the 11 classes on empirical half-life: **H = 85.7,
+p = 3.8 × 10⁻¹⁴, ε² = 0.115**, with 21 of 55 pairwise comparisons significant
+after Benjamini–Hochberg correction.
+
+The omnibus test is unambiguous but the effect is modest, and the structure
+behind it is narrow: **elections are the outlier.** Election articles have a
+median half-life of 2.6 months against 1.3 for terrorism and transport
+accidents — a 2.0× spread — while eight of the eleven classes sit within 0.15
+months of one another, which is below the resolution discussed above. The
+defensible claim is *elections and, more weakly, sport and economy hold
+attention longer than the rest*, not that the eleven classes form a graded
+ranking.
+
+Three classes (economy, n = 6; terrorism, n = 10; epidemic, n = 11) are too
+small for their intervals to mean much, a consequence of Wikipedia's
+year-scoped categories being far richer for culture and transport than for
+economics.
 
 ![Dormancy survival](../outputs/figures/04_dormancy_survival.png)
 
 The survival framing is the more careful version of the same question. An
 article is **dormant** at the first month its trailing-year edit rate drops
-below 5% of peak *and stays there* — a single quiet year inside an otherwise
-active history does not count. Articles still active at the end of the
+below 5% of peak *and stays there*. Articles still active at the end of the
 observation window are right-censored, not dropped and not counted as
-long-lived. Log-rank across classes: **χ²(10) = 55.2, p = 2.9 × 10⁻⁸**.
+long-lived. Log-rank across classes: **χ²(10) = 48.3, p = 5.4 × 10⁻⁷**.
 
-Medians and rank tests throughout, because half-life distributions are heavily
-right-skewed and a handful of never-forgotten events would otherwise drag every
-group mean around.
-
-## 7. What predicts persistence [SYNTHETIC]
+## 7. What predicts persistence [MEASURED]
 
 A gradient-boosted model of log half-life on features measurable in the event's
-**first year** — cross-validated R² = **0.54** against a median baseline.
+**first year**: cross-validated R² = **0.29** against a median baseline.
 Permutation importance:
 
 | Feature | Importance |
 |---|---|
-| Distinct editors in year 1 | 1.30 |
-| Peak edit rate | 0.41 |
-| Article size at *t*₀ | 0.26 |
-| Inbound links at *t*₀ | 0.24 |
-| Anonymous edit share, year 1 | 0.03 |
+| Distinct editors in year 1 | 1.02 |
+| Peak edit rate | 0.94 |
+| Event class = election | 0.24 |
+| Article size at *t*₀ | 0.09 |
+| Anonymous edit share, year 1 | 0.07 |
 
-The ordering is the interesting part, and it survives to the real data as a
-*question* even though the magnitudes here are synthetic: **breadth of
-participation outranks intensity of coverage**. The number of distinct people
-who showed up in year one predicts persistence better than how many edits there
-were. An event covered furiously by a small group and an event covered
-moderately by many are not the same kind of memory. Early inbound-link count
-carrying independent weight points the same way — an event that immediately
-becomes explanatory context for other events is one the encyclopedia keeps.
+The synthetic validation run produced a clean story here — breadth of
+participation (1.30) beating intensity of coverage (0.41) by three to one — and
+**the real data does not support it**. Distinct editors and peak edit rate come
+out effectively tied (1.02 vs 0.94), and the two are strongly collinear in any
+case: events that draw many edits draw many editors. The honest reading is that
+first-year *volume*, however measured, predicts persistence, and this corpus
+cannot separate breadth from intensity. The remaining features add little, and
+R² = 0.29 means most of what determines an article's half-life is not visible
+in its first year at all.
 
-## 8. The evidence decays on its own schedule [SYNTHETIC]
+## 8. The evidence decays on its own schedule [MEASURED]
 
 ![Link rot](../outputs/figures/05_link_rot.png)
 
@@ -231,12 +247,31 @@ archive coverage are different measures on different scales, and overlaying
 them on twin axes would let the visual crossover point be set by the choice of
 scale rather than by the data.
 
-The dynamic is a race. Citations rot at a roughly constant hazard, driven by
-the ordinary mortality of URLs and entirely independent of whether anyone is
-still editing the article. Against that, archiving campaigns push coverage up
-over time. The interesting cases in real data will be articles that went
-dormant *before* the archiving wave reached them — decayed attention and
-decayed evidence compounding.
+| Years since event | Dead links per 100 URLs (mean) | (median) | Archive coverage |
+|---|---|---|---|
+| 0 | 0.02 | 0 | 2.5% |
+| 1 | 0.31 | 0 | 4.1% |
+| 3 | 1.15 | 0 | 6.4% |
+| 5 | 2.11 | 0 | 8.1% |
+| 8 | 4.03 | 0 | 11.1% |
+| 12 | 7.79 | 1.69 | 15.2% |
+| 16 | 11.01 | 5.97 | 21.2% |
+
+This is the cleanest result in the report. Mean dead-link density rises
+monotonically across the whole observation window, driven by the ordinary
+mortality of URLs and entirely independent of whether anyone is still editing.
+Archiving campaigns push coverage up in parallel — a roughly eightfold
+improvement over sixteen years — but they are not keeping pace: an article's
+evidence base rots faster than the encyclopedia repairs it.
+
+The gap between the mean and median columns is itself the finding, and it is
+why the figure plots the median. For the first eight years the *typical* event
+article carries no dead-link tags at all: rot is concentrated in a minority of
+articles while most look untouched. Only past a decade does it become the
+common condition, at which point the median climbs steeply. Link rot is not a
+slow uniform drizzle across the corpus — it is a threshold that articles cross
+one at a time, and the mean is picking up the early crossers long before the
+typical article is affected.
 
 ![Edge survival](../outputs/figures/06_edge_survival.png)
 
@@ -245,59 +280,72 @@ later:
 
 | Years since event | Surviving baseline links | Total links vs. baseline |
 |---|---|---|
-| 1 | 92% | 1.63× |
-| 2 | 70% | 1.45× |
-| 3 | 45% | 1.13× |
-| 5 | 23% | 0.72× |
-| 8 | 7% | 0.32× |
+| 1 | 76% | 2.6× |
+| 3 | 75% | 2.8× |
+| 5 | 55% | 2.2× |
+| 8 | 33% | 1.2× |
+| 16 | 10% | 0.6× |
 
-The two columns tell different stories, which is why both are plotted. Total
-link count *grows* for the first three years while the original links are
-already being lost — the article is being rewired, not merely trimmed. Only
-later does absolute connectivity fall. On real data this distinction separates
-an event being **re-contextualised** (old links replaced by new ones) from one
-being **dropped** (links lost, nothing replacing them).
+**Structure outlives attention, and by a wide margin.** The median article has
+zero human edits in month 12, yet three-quarters of its inbound links are still
+in place three years out, and total inbound links are still *growing* to 2.8×
+baseline at that point. An event stops being worked on long before it stops
+being useful for explaining other things. Being cited as context is a cheaper
+form of remembering than editing, and it persists after the editing stops.
+
+That said, this is the weakest-powered layer here, and the figure states its
+own sample size for that reason: **80 baseline edges across 690 articles**. The
+corpus is a sample of Wikipedia, so links *between sampled articles* are rare
+by construction — only 125 of 690 articles have any inbound link from another
+corpus member at one year. The trajectory is consistent and monotone, but a
+denser corpus is needed before the numbers in that table should be quoted
+individually.
 
 ## 9. Limitations [METHOD]
 
-**Edits proxy attention; they are not attention.** Pageviews would be the
-better observable, but the Wikimedia pageviews API only reaches July 2015 and
+**The monthly panel is too coarse for the early curve**, as section 5 sets out.
+This is the binding limitation on the headline half-life numbers.
+
+**The internal-link layer is sparse by construction**, as section 8 sets out.
+
+**Edits proxy attention; they are not attention.** Pageviews are collected
+where available, but the Wikimedia pageviews API only reaches July 2015 and
 cannot anchor a curve for a 2008 event. Those months are structurally missing
 rather than zero and are handled as such.
 
 **English Wikipedia only.** "Collective memory" here is one language edition's
-editor community, which is not the world. The same event's decay curve on the
-Spanish or Japanese edition is a different — and interesting — measurement.
+editor community, which is not the world.
 
 **Editing effort is not remembering.** An article can be complete and correct
 and therefore need no edits. The maintenance-floor parameter is the attempt to
-separate "finished" from "abandoned", and per the validation it does not do
-that reliably at the article level.
+separate "finished" from "abandoned", and per section 4 it does not do that
+reliably at the article level.
 
 **Category membership proxies event type**, and Wikipedia's categories are
-inconsistent and overlapping. The number of classes claiming each article is
-recorded so that ambiguous cases can be identified.
+inconsistent, overlapping, and very unevenly deep across subject areas — which
+is why three of the eleven classes have fewer than a dozen articles.
 
 **Bot exclusion is heuristic**, resting on the naming convention and the `bot`
-change tag. Bot activity is roughly constant in time, so leftover bot edits
-flatten curves toward artificial persistence.
+change tag.
 
-## 10. What running this on real data would establish
+## 10. What the real run changed
 
-The pipeline is fixed; only the input changes. The four results that would be
-genuinely new:
+Four things look different from the pre-registered synthetic expectations, and
+they are recorded here because the point of fixing the numbers in advance was
+to be able to notice:
 
-1. **Whether collective forgetting is power-law or exponential.** Section 5's
-   table on real data settles it. A power law means there is no characteristic
-   forgetting timescale — the same relative decay happens between months 1 and
-   2 as between years 8 and 16 — which is qualitatively unlike the individual
-   Ebbinghaus curve.
-2. **The actual ranking of event classes** by half-life and dormancy risk, with
-   effect sizes.
-3. **Whether breadth of participation really beats intensity of coverage** as a
-   predictor of persistence.
-4. **Whether attention decay and evidence decay are coupled**, or whether
-   articles go dormant on a schedule wholly unrelated to their sources rotting.
+1. **The exponential is out, but the power law did not win cleanly.** Stretched
+   exponential more than doubled its share against the synthetic run. The
+   corpus is heavy-tailed; which heavy tail is unresolved.
+2. **Class differences are real but narrow**, and are essentially "elections
+   versus everything else" rather than a graded ranking. ε² = 0.115, not 0.38.
+3. **Breadth of participation does not beat intensity of coverage.** They tie,
+   and the corpus cannot separate them. The synthetic run's clean 3:1 ordering
+   was an artefact of the generative model.
+4. **Attention and structure decouple.** Editing stops within a year for the
+   median article while three-quarters of inbound links survive three years,
+   and total links keep growing. The simulator had links decaying *faster* than
+   attention, which is the opposite of what Wikipedia does.
 
 Reproduce with:
 
@@ -306,8 +354,13 @@ export IMD_CONTACT="you@example.com"
 imd corpus && imd collect && imd analyze && imd figures
 ```
 
+The collection run behind this report took about 48 minutes wall-clock and made
+6,900 API requests with zero errors. Every response is cached, so re-running
+the analysis costs no network at all.
+
 ---
 
 *Every figure in this report is generated by `imd figures`. Statistical results
 are in `outputs/findings.json`; pairwise comparisons and feature importances are
-written alongside it as CSV.*
+written alongside it as CSV. The synthetic validation run of section 4 is
+preserved in `outputs/validation_synthetic/`.*
